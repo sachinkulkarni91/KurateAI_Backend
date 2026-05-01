@@ -9,3 +9,20 @@ REQ007,U008,RES003,export,study,STUDY003,Final report generation,APPROVED,2026-0
 REQ008,U009,RES001,read,study,STUDY001,Privacy audit,PENDING,2026-04-22T16:00:00Z
 REQ009,U010,RES002,read,study,STUDY002,External collaboration,PENDING,2026-04-23T08:00:00Z
 REQ010,U001,RES006,run,study,STUDY001,Pipeline execution,PENDING,2026-04-23T09:30:00Z
+REQ011,string,RES002,read,study,,,PENDING,2026-04-29T21:29:43Z
+REQ012,string,RES002,read,study,,,PENDING,2026-04-29T21:33:48Z
+REQ013,string,RES002,read,study,,,PENDING,2026-04-29T21:34:08Z
+REQ014,Attideep,RES002,read,study,,,PENDING,2026-04-29T21:35:24Z
+REQ015,string,RES002,read,study,,,PENDING,2026-04-29T21:37:45Z
+REQ016,string,RES002,read,study,,,PENDING,2026-04-29T21:45:01Z
+REQ017,U999,RES002,read,study,,,PENDING,2026-04-29T21:45:18Z
+REQ018,U999,RES003,run,study,,N/A,PENDING,2026-04-29T22:13:46Z
+REQ019,U999,RES009,write,study,,I want to do analysis on that,PENDING,2026-04-30T04:40:11Z
+REQ020,U999,RES006,run,study,,Need it for Oncology Pipeline,PENDING,2026-04-30T05:12:58Z
+REQ021,U999,RES007,run,study,,I want to access dashboard to update the data,PENDING,2026-04-30T06:51:54Z
+REQ022,U999,RES004,export,study,,I want to update the dataset,PENDING,2026-04-30T06:53:51Z
+REQ023,U999,RES007,export,study,,I want access to the dashboard,PENDING,2026-04-30T06:55:46Z
+REQ024,U999,RES007,export,study,,test,PENDING,2026-04-30T07:00:23Z
+REQ025,U999,RES008,approve,study,,I want access to approve report,PENDING,2026-04-30T08:50:27Z
+REQ026,U999,RES001,write,study,,I want to add more on data set,PENDING,2026-04-30T09:16:42Z
+REQ027,U999,RES004,export,study,,I want to export the bio marker dataset,PENDING,2026-04-30T09:29:47Z

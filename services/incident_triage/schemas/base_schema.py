@@ -6,7 +6,7 @@ class IncidentStatus(BaseModel):
 
     @field_validator("status")
     def validate_status(cls, value):
-        allowed = {"in progress", "open", "closed", "resolved"}
+        allowed = {"in progress", "open", "closed", "resolved", "pending"}
         value_lower = value.lower()
 
         if value_lower not in allowed:

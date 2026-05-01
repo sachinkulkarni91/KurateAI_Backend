@@ -14,6 +14,22 @@ class AccessRequestFilter(BaseModel):
 
         return value
 
+class AccessRequestCreate(BaseModel):
+    request_id: str | None = None
+    user_id: str
+    user_name: str | None = None
+    resource_id: str | None = None
+    resource_name: str
+    requested_action: str
+    status: str | None = None
+    created_at: str | None = None
+    
+    scope_type: str = "study"
+    scope_id: str = ""
+    justification: str = ""
+
+
+
 class AccessRequestItem(BaseModel):
     request_id: str
     user_id: str

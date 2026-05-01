@@ -20,9 +20,7 @@ class LLMClient:
         endpoint: Optional[str] = None,
         default_model: str = "openai/gpt-oss-20b:free",
     ):
-        self.api_key = api_key or os.environ.get(api_key_env)
-        if not self.api_key:
-            raise RuntimeError(f"OpenRouter API key missing (check .env for {api_key_env}).")
+        self.api_key = api_key or os.environ.get(api_key_env) or ""
 
         self.endpoint = endpoint or self.DEFAULT_ENDPOINT
         self.default_model = default_model

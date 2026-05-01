@@ -316,40 +316,97 @@ from pathlib import Path
 @router.get(
     "/datasets",
     tags=["Information"],
-    summary="Get list of available log datasets"
+    summary="Get list of available log datasets (includes Jira)"
 )
 def get_datasets():
-    """Get all available JSON log files in the data directory"""
+    """Get all available datasets — local JSON files + live Jira bugs."""
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     log_files = glob.glob(os.path.join(data_dir, "*.json"))
-    
+
     datasets = []
+
+    # Always list "Jira Bugs (Live)" as the first dataset
+    datasets.append({
+        "id": "jira-bugs",
+        "name": "Jira Bugs (Live)",
+        "path": "jira",
+        "source": "jira",
+    })
+
+    # Then local scenario files
     for file in log_files:
         datasets.append({
             "id": os.path.basename(file),
             "name": os.path.basename(file).replace(".json", "").replace("_", " ").title(),
-            "path": file
+            "path": file,
+            "source": "local",
         })
-    
+
     return {"datasets": datasets}
 
 
 @router.get(
     "/dataset/{dataset_id}",
     tags=["Information"],
-    summary="Get specific dataset content by ID"
+    summary="Get specific dataset content by ID (supports 'jira-bugs')"
 )
 def get_dataset(dataset_id: str):
-    """Get the JSON content of a specific dataset log file"""
+    """
+    Get the content of a dataset.
+
+    - **jira-bugs**: Fetches live bugs from Jira and converts them to
+      the same log format the frontend expects.
+    - **scenario_*.json**: Returns local file contents as before.
+    """
+
+    # ── Jira virtual dataset ──
+    if dataset_id == "jira-bugs":
+        try:
+            from services.bug_rca.jira_client import get_jira_client
+            client = get_jira_client()
+            bugs = client.get_bugs(max_results=100, issue_type=None)
+
+            # Convert Jira issues → log-entry format the frontend understands
+            logs = []
+            for bug in bugs:
+                logs.append({
+                    "timestamp": bug.get("created", ""),
+                    "service_name": ", ".join(bug.get("components", [])) or bug.get("issue_type", "Bug"),
+                    "error_message": bug.get("summary", ""),
+                    "stack_trace": bug.get("description", ""),
+                    "environment": "production",
+                    "request_id": bug.get("key", ""),
+                    "user_id": bug.get("reporter", ""),
+                    "severity": _jira_priority_to_severity(bug.get("priority", "Medium")),
+                    "status": bug.get("status", "To Do"),
+                    "metadata": {
+                        "jira_key": bug.get("key", ""),
+                        "jira_url": bug.get("url", ""),
+                        "assignee": bug.get("assignee", "Unassigned"),
+                        "labels": bug.get("labels", []),
+                        "resolution": bug.get("resolution"),
+                        "updated": bug.get("updated", ""),
+                    }
+                })
+
+            return logs
+        except Exception as e:
+            logger.error(f"Error fetching Jira bugs as dataset: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to fetch bugs from Jira: {str(e)}"
+            )
+
+    # ── Local file dataset ──
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     file_path = os.path.join(data_dir, dataset_id)
-    
+
     if not os.path.exists(file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found"
         )
-        
+
     try:
         with open(file_path, "r") as f:
             data = json.load(f)
@@ -360,6 +417,19 @@ def get_dataset(dataset_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to read dataset file"
         )
+
+
+def _jira_priority_to_severity(priority: str) -> str:
+    """Map Jira priority names to severity levels."""
+    mapping = {
+        "highest": "critical",
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "lowest": "low",
+    }
+    return mapping.get(priority.lower(), "medium")
+
 
 @router.get(
     "/info",
@@ -401,7 +471,7 @@ def get_info():
 
 def _load_and_analyze_logs_from_files():
     """
-    Load all log files and extract statistics
+    Load all log files AND live Jira bugs, then extract statistics.
     """
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     log_files = glob.glob(os.path.join(data_dir, "*.json"))
@@ -412,7 +482,40 @@ def _load_and_analyze_logs_from_files():
     low_risk_count = 0
     service_down_causes = {}
     error_messages = []
-    
+
+    # ── Pull Jira bugs as additional log entries ──
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+        jira_bugs = client.get_bugs(max_results=100, issue_type=None)
+        for bug in jira_bugs:
+            sev = _jira_priority_to_severity(bug.get("priority", "Medium"))
+            log_entry = {
+                "timestamp": bug.get("created", ""),
+                "service_name": ", ".join(bug.get("components", [])) or bug.get("issue_type", "Bug"),
+                "error_message": bug.get("summary", ""),
+                "environment": "production",
+                "severity": sev,
+                "status": bug.get("status", "To Do"),
+                "metadata": {
+                    "jira_key": bug.get("key", ""),
+                    "source": "jira",
+                }
+            }
+
+            if sev in ["critical", "high"]:
+                high_risk_count += 1
+            elif sev == "medium":
+                medium_risk_count += 1
+            else:
+                low_risk_count += 1
+
+            error_messages.append(bug.get("summary", ""))
+            all_logs.append(log_entry)
+    except Exception as e:
+        logger.warning(f"Could not load Jira bugs for dashboard: {e}")
+
+    # ── Local file logs ──
     try:
         for file_path in log_files:
             with open(file_path, 'r') as f:
@@ -1172,3 +1275,93 @@ def match_and_analyze_bug(request: BugMatchingRequest) -> BugMatchingResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Bug matching failed: {str(e)}"
         )
+
+
+# ============ Jira Integration Endpoints ============
+
+@router.get(
+    "/jira/bugs",
+    tags=["Jira Integration"],
+    summary="Fetch bugs from Jira",
+)
+def get_jira_bugs(
+    jira_status: Optional[str] = Query(None, alias="status", description="Filter by Jira status, e.g. 'To Do', 'In Progress', 'Done'"),
+    max_results: int = Query(50, ge=1, le=100, description="Maximum bugs to return"),
+    issue_type: str = Query("Bug", description="Jira issue type to filter (use empty string for all)"),
+):
+    """
+    Fetch bugs/issues from Jira Cloud.
+
+    Returns a list of normalized bug objects with fields like key, summary,
+    description, status, priority, assignee, etc.
+    """
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+        bugs = client.get_bugs(
+            status=jira_status,
+            max_results=max_results,
+            issue_type=issue_type if issue_type else None,
+        )
+        return {
+            "total": len(bugs),
+            "project": client.project_key,
+            "bugs": bugs,
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Jira fetch failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch bugs from Jira: {str(e)}",
+        )
+
+
+@router.get(
+    "/jira/bugs/{issue_key}",
+    tags=["Jira Integration"],
+    summary="Get a single Jira issue by key",
+)
+def get_jira_bug(issue_key: str):
+    """Fetch details for a single Jira issue (e.g. KAN-1)."""
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+        bug = client.get_issue(issue_key)
+        return bug
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Jira issue fetch failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch issue {issue_key} from Jira: {str(e)}",
+        )
+
+
+@router.get(
+    "/jira/statuses",
+    tags=["Jira Integration"],
+    summary="Get available Jira statuses for the project",
+)
+def get_jira_statuses():
+    """Return the list of available workflow statuses for the configured Jira project."""
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+        statuses = client.get_statuses()
+        return {"project": client.project_key, "statuses": statuses}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Jira statuses fetch failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch statuses from Jira: {str(e)}",
+        )
+
+
+def status_code_503():
+    """Helper to return 503 status code."""
+    return 503

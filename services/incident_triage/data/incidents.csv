@@ -49,3 +49,15 @@ Kiran Reddy,INC4001047,ELN data save issue,Data not saving intermittently.,Ankit
 Dr. Olga Ivanova,INC4001048,Imaging upload delay,Uploads taking too long.,Aditya Menon,In Progress,
 Sanjay Gupta,INC4001049,ETL schema drift,Schema drift causing failures.,Manish Tiwari,Resolved,Implemented schema validation and alerts.
 Dr. Peter Wilson,INC4001050,CTMS report error,Incorrect report generation.,Megha Arora,Closed,Fixed aggregation logic in reporting module.
+Attideep,INC4002052,It issue,It issue,Pranav,Open,
+Jadhav Bhavesh,INC4002053,EDC Failure Sync,EDC Failure Sync issues,Jadhav Bhavesh,Open,
+Jadhav Bhavesh,INC4002054,EDC Failure,EDC is not working as expected,Jadhav Bhavesh,Open,
+Jadhav Bhavesh,INC4002055,Network failure,Network issues,Jadhav Bhavesh,Open,
+Attideep,INC4002056,Internet Issues,Internet is not working,Attideep,Open,
+Pratik,INC4002057,EDC Data failure,Data in EDC is failing,Pratik,Open,
+Attideep,INC4002058,EDC Failure issue,EDC Failure issue is persistent,Attideep,Open,
+Sachin,INC4002059,EDC sync Failure,EDC sync Failure,Sachin,Open,
+Sachin,INC4002060,Network failure,Network issue,Sachin,Open,
+Sachin,INC4002061,Internet issue,Internet issue,Sachin,Open,
+Attideep,INC4002062,EDC Data Failure,EDC Data Failure issues,Attideep,Open,
+Attideep,INC4002063,EDC Failure,EDC Failure is persistent,Attideep,Open,

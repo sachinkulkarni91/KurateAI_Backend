@@ -1,3 +1,5 @@
+import os
+import csv
 import uuid
 
 from datetime import datetime
@@ -232,3 +234,120 @@ def assign_roles(user_id: str, roles: list):
                 "scope_id": role["scope"],
                 "granted_at": datetime.utcnow()
             })
+
+def get_latest_request_id():
+    query = text("""
+        SELECT request_id FROM access_requests
+        WHERE request_id LIKE 'REQ%'
+    """)
+    with engine.connect() as conn:
+        result = conn.execute(query).fetchall()
+        if not result:
+            return "REQ000"
+        
+        max_num = 0
+        for row in result:
+            num_str = row[0].replace('REQ', '')
+            try:
+                max_num = max(max_num, int(num_str))
+            except ValueError:
+                pass
+        return f"REQ{max_num:03d}"
+
+def get_resource_id_by_name(resource_name: str):
+    query = text("SELECT resource_id FROM resources WHERE resource_name = :resource_name")
+    with engine.connect() as conn:
+        result = conn.execute(query, {"resource_name": resource_name}).fetchone()
+    return result.resource_id if result else None
+
+def ensure_user_exists(user_id: str, user_name: str):
+    if not user_id or user_id.lower() == "string":
+        user_id = "U999"
+    if not user_name or user_name.lower() == "string":
+        user_name = "Sachin"
+        
+    query = text("SELECT user_id FROM users WHERE user_id = :user_id")
+    with engine.connect() as conn:
+        result = conn.execute(query, {"user_id": user_id}).fetchone()
+        
+    if not result:
+        insert_query = text("""
+            INSERT INTO users (user_id, name, email, department, title, status)
+            VALUES (:user_id, :name, :email, :department, :title, :status)
+        """)
+        with engine.begin() as conn:
+            conn.execute(insert_query, {
+                "user_id": user_id,
+                "name": user_name,
+                "email": f"{user_name.lower().replace(' ', '.')}@pharma.com",
+                "department": "Engineering",
+                "title": "Software Engineer",
+                "status": "active"
+            })
+            
+        csv_path = os.path.join("services", "user_access", "data", "users.csv")
+        with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                user_id,
+                user_name,
+                f"{user_name.lower().replace(' ', '.')}@pharma.com",
+                "Engineering",
+                "Software Engineer",
+                "active"
+            ])
+            
+    return user_id
+
+def create_access_request(data: dict):
+    resource_id = get_resource_id_by_name(data.get("resource_name", ""))
+    if not resource_id:
+        raise ValueError(f"Resource with name '{data.get('resource_name')}' not found")
+
+    final_user_id = ensure_user_exists(data.get("user_id", ""), data.get("user_name", ""))
+
+    latest_id = get_latest_request_id()
+    num = int(latest_id.replace("REQ", "")) + 1
+    new_id = f"REQ{num:03d}"
+
+    
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    csv_path = os.path.join("services", "user_access", "data", "access_requests.csv")
+    with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            new_id,
+            final_user_id,
+            resource_id,
+            data.get("requested_action", ""),
+            data.get("scope_type", "study"),
+            data.get("scope_id", ""),
+            data.get("justification", ""),
+            "PENDING",
+            now
+        ])
+    
+    insert_query = text("""
+        INSERT INTO access_requests (
+            request_id, user_id, resource_id, requested_action,
+            scope_type, scope_id, justification, status, created_at
+        ) VALUES (
+            :request_id, :user_id, :resource_id, :requested_action,
+            :scope_type, :scope_id, :justification, 'PENDING', :created_at
+        )
+    """)
+    with engine.connect() as conn:
+        conn.execute(insert_query, {
+            "request_id": new_id,
+            "user_id": final_user_id,
+            "resource_id": resource_id,
+            "requested_action": data.get("requested_action", ""),
+            "scope_type": data.get("scope_type", "study"),
+            "scope_id": data.get("scope_id", ""),
+            "justification": data.get("justification", ""),
+            "created_at": now
+        })
+        conn.commit()
+    
+    return new_id

@@ -30,9 +30,10 @@ def get_incidents(status: str):
             State as state
         FROM incidents
         WHERE LOWER(State) = :status
+        ORDER BY Number DESC
     """)
     with engine.connect() as conn:
-        result = conn.execute(query, {"status": status})
+        result = conn.execute(query, {"status": status.lower()})
         rows = result.fetchall()
     
     return rows
@@ -124,3 +125,25 @@ def create_incident(incident_data: dict):
             incident_data.get("state", ""),
             incident_data.get("resolution", "")
         ])
+
+    insert_query = text("""
+        INSERT INTO incidents (
+            "Affected User", "Number", "Short description", "Description", 
+            "Assigned To", "State", "Resolution"
+        ) VALUES (
+            :affected_user, :number, :short_description, :description, 
+            :assigned_to, :state, :resolution
+        )
+    """)
+    with engine.connect() as conn:
+        conn.execute(insert_query, {
+            "affected_user": incident_data.get("affected_user", ""),
+            "number": incident_data.get("number", ""),
+            "short_description": incident_data.get("short_description", ""),
+            "description": incident_data.get("description", ""),
+            "assigned_to": incident_data.get("assigned_to", ""),
+            "state": incident_data.get("state", ""),
+            "resolution": incident_data.get("resolution", "")
+        })
+        conn.commit()
+

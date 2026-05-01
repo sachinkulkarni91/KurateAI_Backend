@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from services.user_access.agents.user_access_manager.main import *
 from services.user_access.utils.query import *
-from services.user_access.schemas.base_schema import AccessRequestFilter, AccessRequestListResponse, AnalyzeRequest, AnalyzeResponse, DecisionRequest
+from services.user_access.schemas.base_schema import AccessRequestFilter, AccessRequestListResponse, AnalyzeRequest, AnalyzeResponse, DecisionRequest, AccessRequestCreate
 
 router = APIRouter()
 
@@ -27,9 +27,13 @@ def _build_decision_payload(context, current_roles, candidate_roles, requested_s
     }
 
 @router.get("/get-access-requests", response_model=AccessRequestListResponse)
-def get_access_requests(filters: AccessRequestFilter = Depends()):
+def get_access_requests(status: str):
+    allowed = {"PENDING", "APPROVED", "REJECTED"}
+    if status.upper() not in allowed:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {allowed}")
+        
     try:
-        data = get_access_requests_by_status(filters.status)
+        data = get_access_requests_by_status(status.upper())
 
         return {
             "count": len(data),
@@ -71,14 +75,26 @@ def get_analysis(request: AnalyzeRequest):
             }
         }
     else: 
-        # LLM Summarization
-        summary_agent = SummaryAgent()
-        summary = summary_agent.generate_summary(context)
+        summary = "AI Analysis is currently unavailable because the API key is missing or invalid."
+        decision = {
+            "risk": "Unknown",
+            "impact": "Cannot assess impact without AI agent.",
+            "decision": "Manual Review Required",
+            "confidence": "Low",
+            "reason": "AI service is not configured. Please review this request manually."
+        }
+        
+        try:
+            # LLM Summarization
+            summary_agent = SummaryAgent()
+            summary = summary_agent.generate_summary(context)
 
-        # LLM Decision
-        decision_agent = DecisionAgent()
-        payload = _build_decision_payload(context, roles, candidate_roles, context['scope_id'], history)
-        decision = decision_agent.generate_decision(payload)
+            # LLM Decision
+            decision_agent = DecisionAgent()
+            payload = _build_decision_payload(context, roles, candidate_roles, context.get('scope_id', ''), history)
+            decision = decision_agent.generate_decision(payload)
+        except Exception as e:
+            print(f"LLM Analysis failed: {str(e)}")
 
         return {
             'request_id': request.req_id,
@@ -108,3 +124,14 @@ def decide_access_request(request_id: str, payload: DecisionRequest):
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/create-request")
+@router.post("/submit-access-request")
+def create_new_access_request(request: AccessRequestCreate):
+    request_data = request.model_dump()
+    new_id = create_access_request(request_data)
+    
+    return {
+        "message": "Access request created successfully",
+        "request_id": new_id
+    }

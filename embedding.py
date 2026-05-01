@@ -1,24 +1,51 @@
-import faiss
 import os
 import pickle
 import numpy as np
+import logging
 
-from fastembed import TextEmbedding
-from services.incident_triage.utils.query import get_closed_incidents
+logger = logging.getLogger(__name__)
+
+# Detect serverless environment
+IS_SERVERLESS = bool(os.environ.get("VERCEL"))
 
 # Paths
 FAISS_INDEX_PATH = "incidents_index.bin"
 MAPPING_PATH = "incidents_mapping.pkl"
 
-# Load lightweight model
-model = TextEmbedding()
-
 # Globals
 faiss_index = None
 id_mapping = []
-
-# In-memory cache
+model = None
 embedding_cache = {}
+
+
+def _get_model():
+    """Lazy-load the embedding model (skip on serverless)."""
+    global model
+    if model is not None:
+        return model
+
+    if IS_SERVERLESS:
+        logger.warning("Skipping fastembed model load on serverless (Vercel)")
+        return None
+
+    try:
+        from fastembed import TextEmbedding
+        model = TextEmbedding()
+        return model
+    except Exception as e:
+        logger.warning(f"Could not load fastembed model: {e}")
+        return None
+
+
+def _get_faiss():
+    """Lazy-import faiss."""
+    try:
+        import faiss
+        return faiss
+    except ImportError:
+        logger.warning("faiss-cpu not available")
+        return None
 
 
 # Embedding function with cache
@@ -26,10 +53,15 @@ def generate_embedding(text: str):
     if text in embedding_cache:
         return embedding_cache[text]
 
+    m = _get_model()
+    if m is None:
+        # Return a zero vector as fallback
+        return np.zeros(384, dtype="float32")
+
     if len(embedding_cache) > 1000:
         embedding_cache.clear()
-    
-    embedding = list(model.embed([text]))[0]
+
+    embedding = list(m.embed([text]))[0]
     embedding = np.array(embedding, dtype="float32")
 
     embedding_cache[text] = embedding
@@ -38,11 +70,9 @@ def generate_embedding(text: str):
 
 def generate_embeddings_batch(texts: list[str]) -> np.ndarray:
     embeddings = []
-
     for text in texts:
         emb = generate_embedding(text)
         embeddings.append(emb)
-
     return np.vstack(embeddings)
 
 
@@ -50,6 +80,12 @@ def generate_embeddings_batch(texts: list[str]) -> np.ndarray:
 def build_incidents_faiss_index():
     global faiss_index, id_mapping
 
+    faiss = _get_faiss()
+    if faiss is None:
+        logger.warning("FAISS not available — skipping index build")
+        return
+
+    from services.incident_triage.utils.query import get_closed_incidents
     incidents = get_closed_incidents()
 
     texts = []
@@ -61,21 +97,17 @@ def build_incidents_faiss_index():
         id_mapping.append(inc["number"])
 
     if not texts:
-        raise ValueError("No resolved/closed incidents found for FAISS index")
+        logger.warning("No resolved/closed incidents found for FAISS index")
+        return
 
     embeddings = generate_embeddings_batch(texts)
-
     dim = embeddings.shape[1]
 
-    # Cosine similarity
     faiss.normalize_L2(embeddings)
     faiss_index = faiss.IndexFlatIP(dim)
-
     faiss_index.add(embeddings)
 
-    # Persist
     faiss.write_index(faiss_index, FAISS_INDEX_PATH)
-
     with open(MAPPING_PATH, "wb") as f:
         pickle.dump(id_mapping, f)
 
@@ -86,13 +118,17 @@ def build_incidents_faiss_index():
 def load_incident_faiss_index():
     global faiss_index, id_mapping
 
+    faiss = _get_faiss()
+    if faiss is None:
+        logger.warning("FAISS not available — skipping index load")
+        return
+
     if not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(MAPPING_PATH):
         print("FAISS index not found. Building new index...")
         build_incidents_faiss_index()
         return
 
     faiss_index = faiss.read_index(FAISS_INDEX_PATH)
-
     with open(MAPPING_PATH, "rb") as f:
         id_mapping = pickle.load(f)
 
@@ -103,21 +139,19 @@ def load_incident_faiss_index():
 def search_similar_incidents(query_text: str, top_k: int = 5):
     global faiss_index, id_mapping
 
-    if faiss_index is None:
-        raise ValueError("FAISS index not initialized")
+    faiss = _get_faiss()
+    if faiss is None or faiss_index is None:
+        logger.warning("FAISS not available for search")
+        return []
 
     query_embedding = generate_embedding(query_text).reshape(1, -1)
-
     faiss.normalize_L2(query_embedding)
-
     scores, indices = faiss_index.search(query_embedding, top_k)
 
     results = []
-
     for i, idx in enumerate(indices[0]):
         if idx == -1:
             continue
-
         results.append({
             "incident_id": id_mapping[idx],
             "similarity": float(scores[0][i])
@@ -125,30 +159,22 @@ def search_similar_incidents(query_text: str, top_k: int = 5):
 
     return results
 
+
 def add_incident_to_faiss(incident: dict):
     global faiss_index, id_mapping
 
-    if faiss_index is None:
-        raise ValueError("FAISS index not initialized")
+    faiss = _get_faiss()
+    if faiss is None or faiss_index is None:
+        logger.warning("FAISS not available — cannot add incident")
+        return
 
-    # Create text
     text = f"{incident['short_description']}. {incident['description']}"
-
-    # Generate embedding
     embedding = generate_embedding(text).reshape(1, -1)
-
-    # Normalize
     faiss.normalize_L2(embedding)
-
-    # Add to index
     faiss_index.add(embedding)
-
-    # Update mapping
     id_mapping.append(incident["number"])
 
-    # Persist changes
     faiss.write_index(faiss_index, FAISS_INDEX_PATH)
-
     with open(MAPPING_PATH, "wb") as f:
         pickle.dump(id_mapping, f)
 

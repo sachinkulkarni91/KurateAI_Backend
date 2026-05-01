@@ -23,8 +23,16 @@ app.include_router(user_access_router, prefix="/user-access", tags=["User Access
 
 @app.on_event("startup")
 def startup():
-    initialize_database()
-    load_incident_faiss_index()
+    try:
+        initialize_database()
+    except Exception as e:
+        import logging
+        logging.warning(f"DB init skipped: {e}")
+    try:
+        load_incident_faiss_index()
+    except Exception as e:
+        import logging
+        logging.warning(f"FAISS init skipped: {e}")
 
 @app.get("/")
 def read_root():

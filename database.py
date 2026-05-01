@@ -2,8 +2,11 @@ import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-# SQLite DB
-DATABASE_URL = "sqlite:///./rbac.db"
+# SQLite DB — use /tmp on Vercel (only writable dir in serverless)
+if os.environ.get("VERCEL"):
+    DATABASE_URL = "sqlite:////tmp/rbac.db"
+else:
+    DATABASE_URL = "sqlite:///./rbac.db"
 
 engine = create_engine(
     DATABASE_URL,

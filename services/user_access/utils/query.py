@@ -315,19 +315,20 @@ def create_access_request(data: dict):
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     
     csv_path = os.path.join("services", "user_access", "data", "access_requests.csv")
-    with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            new_id,
-            final_user_id,
-            resource_id,
-            data.get("requested_action", ""),
-            data.get("scope_type", "study"),
-            data.get("scope_id", ""),
-            data.get("justification", ""),
-            "PENDING",
-            now
-        ])
+    if not os.environ.get("VERCEL"):
+        with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                new_id,
+                final_user_id,
+                resource_id,
+                data.get("requested_action", ""),
+                data.get("scope_type", "study"),
+                data.get("scope_id", ""),
+                data.get("justification", ""),
+                "PENDING",
+                now
+            ])
     
     insert_query = text("""
         INSERT INTO access_requests (

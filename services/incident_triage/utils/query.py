@@ -114,17 +114,18 @@ def get_latest_incident_number():
 
 def create_incident(incident_data: dict):
     csv_path = os.path.join("services", "incident_triage", "data", "incidents.csv")
-    with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            incident_data.get("affected_user", ""),
-            incident_data.get("number", ""),
-            incident_data.get("short_description", ""),
-            incident_data.get("description", ""),
-            incident_data.get("assigned_to", ""),
-            incident_data.get("state", ""),
-            incident_data.get("resolution", "")
-        ])
+    if not os.environ.get("VERCEL"):
+        with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                incident_data.get("affected_user", ""),
+                incident_data.get("number", ""),
+                incident_data.get("short_description", ""),
+                incident_data.get("description", ""),
+                incident_data.get("assigned_to", ""),
+                incident_data.get("state", ""),
+                incident_data.get("resolution", "")
+            ])
 
     insert_query = text("""
         INSERT INTO incidents (

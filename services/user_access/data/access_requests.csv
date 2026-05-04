@@ -26,3 +26,4 @@ REQ024,U999,RES007,export,study,,test,PENDING,2026-04-30T07:00:23Z
 REQ025,U999,RES008,approve,study,,I want access to approve report,PENDING,2026-04-30T08:50:27Z
 REQ026,U999,RES001,write,study,,I want to add more on data set,PENDING,2026-04-30T09:16:42Z
 REQ027,U999,RES004,export,study,,I want to export the bio marker dataset,PENDING,2026-04-30T09:29:47Z
+REQ028,U999,RES002,write,study,,I want to add more data in Diabetes Analysis DataSet so I would require access to write the data set,PENDING,2026-05-04T11:42:27Z

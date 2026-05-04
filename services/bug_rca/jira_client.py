@@ -53,6 +53,9 @@ class JiraClient:
         url = f"{self.base_url}/rest/api/3{path}"
         resp = requests.post(url, headers=self.headers, json=json_body or {}, timeout=15)
         resp.raise_for_status()
+        # Jira returns 204 No Content for some POST actions (e.g. transitions)
+        if resp.status_code == 204 or not resp.content:
+            return {}
         return resp.json()
 
     # ── Fetch bugs ───────────────────────────────────────────
@@ -120,6 +123,67 @@ class JiraClient:
             logger.warning(f"Could not fetch statuses: {e}")
             return ["To Do", "In Progress", "Done"]
 
+    # ── Get available transitions for an issue ───────────────
+    def get_transitions(self, issue_key: str) -> List[Dict[str, Any]]:
+        """
+        Get the available workflow transitions for a specific issue.
+        Returns list of {id, name, to_status} dicts.
+        """
+        data = self._get(f"/issue/{issue_key}/transitions")
+        transitions = []
+        for t in data.get("transitions", []):
+            transitions.append({
+                "id": t["id"],
+                "name": t["name"],
+                "to_status": t.get("to", {}).get("name", ""),
+            })
+        return transitions
+
+    # ── Transition an issue to a new status ───────────────────
+    def transition_issue(self, issue_key: str, target_status: str) -> Dict[str, Any]:
+        """
+        Move an issue to the given status (e.g. 'In Progress', 'In Review', 'Done').
+
+        Steps:
+          1. Fetch available transitions for the issue
+          2. Find the transition that leads to target_status
+          3. Execute the transition
+
+        Returns the updated issue dict.
+        Raises ValueError if the target status isn't reachable.
+        """
+        transitions = self.get_transitions(issue_key)
+        logger.info(f"Available transitions for {issue_key}: {transitions}")
+
+        # Find transition matching the target status (case-insensitive)
+        target_lower = target_status.lower().strip()
+        matched = None
+        for t in transitions:
+            if t["to_status"].lower().strip() == target_lower:
+                matched = t
+                break
+            # Also match by transition name (some boards name transitions differently)
+            if t["name"].lower().strip() == target_lower:
+                matched = t
+                break
+
+        if not matched:
+            available = [f"{t['name']} → {t['to_status']}" for t in transitions]
+            raise ValueError(
+                f"Cannot transition {issue_key} to '{target_status}'. "
+                f"Available transitions: {', '.join(available) or 'none'}"
+            )
+
+        # Execute the transition
+        self._post(f"/issue/{issue_key}/transitions", json_body={
+            "transition": {"id": matched["id"]}
+        })
+
+        logger.info(f"Transitioned {issue_key} to '{matched['to_status']}' via '{matched['name']}'")
+
+        # Return the updated issue
+        return self.get_issue(issue_key)
+
     # ── Normalize Jira response → simple dict ────────────────
     @staticmethod
     def _normalize(issue: Dict) -> Dict[str, Any]:
@@ -166,3 +230,4 @@ class JiraClient:
 def get_jira_client() -> JiraClient:
     """Factory — returns a configured JiraClient or raises RuntimeError."""
     return JiraClient()
+

@@ -1318,6 +1318,129 @@ def get_jira_bugs(
         )
 
 
+# ── More-specific Jira sub-routes MUST come before /{issue_key} ──
+
+from pydantic import BaseModel
+
+
+class TransitionRequest(BaseModel):
+    """Request body for transitioning a Jira issue."""
+    target_status: str  # e.g. "In Progress", "In Review", "Done"
+
+
+class BulkTransitionRequest(BaseModel):
+    """Request body for bulk transitioning multiple Jira issues."""
+    issue_keys: list[str]      # e.g. ["KAN-19", "KAN-20", "KAN-21"]
+    target_status: str         # e.g. "In Progress"
+
+
+@router.get(
+    "/jira/bugs/{issue_key}/transitions",
+    tags=["Jira Integration"],
+    summary="Get available transitions for a Jira issue",
+)
+def get_jira_transitions(issue_key: str):
+    """
+    Returns the available workflow transitions for a specific issue.
+    Use this to see which statuses the issue can move to from its current state.
+    """
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+        current = client.get_issue(issue_key)
+        transitions = client.get_transitions(issue_key)
+        return {
+            "issue_key": issue_key,
+            "current_status": current.get("status", "Unknown"),
+            "available_transitions": transitions,
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Jira transitions fetch failed for {issue_key}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch transitions for {issue_key}: {str(e)}",
+        )
+
+
+@router.post(
+    "/jira/bugs/{issue_key}/transition",
+    tags=["Jira Integration"],
+    summary="Transition a Jira bug to a new status",
+)
+def transition_jira_bug(issue_key: str, body: TransitionRequest):
+    """
+    Move a Jira issue to a new workflow status.
+
+    Supported statuses (depends on your board):
+      - **In Progress** — Bug is being worked on
+      - **In Review** — Bug fix is under review
+      - **Done** — Bug is resolved
+
+    Example: `{"target_status": "In Progress"}`
+    """
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+        updated = client.transition_issue(issue_key, body.target_status)
+        return {
+            "message": f"Successfully moved {issue_key} to '{body.target_status}'",
+            "issue": updated,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Jira transition failed for {issue_key}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to transition {issue_key}: {str(e)}",
+        )
+
+
+@router.post(
+    "/jira/bugs/bulk-transition",
+    tags=["Jira Integration"],
+    summary="Bulk transition multiple Jira bugs to a new status",
+)
+def bulk_transition_jira_bugs(body: BulkTransitionRequest):
+    """
+    Move multiple Jira issues to a new workflow status in one call.
+
+    Example: `{"issue_keys": ["KAN-19", "KAN-20"], "target_status": "In Progress"}`
+    """
+    try:
+        from services.bug_rca.jira_client import get_jira_client
+        client = get_jira_client()
+
+        results = {"succeeded": [], "failed": []}
+
+        for key in body.issue_keys:
+            try:
+                updated = client.transition_issue(key, body.target_status)
+                results["succeeded"].append({
+                    "key": key,
+                    "new_status": updated.get("status", body.target_status),
+                })
+            except Exception as e:
+                results["failed"].append({"key": key, "error": str(e)})
+
+        return {
+            "message": f"Processed {len(body.issue_keys)} issues",
+            "target_status": body.target_status,
+            "results": results,
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Bulk transition failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Bulk transition failed: {str(e)}")
+
+
+# ── Catch-all single-issue GET — must come LAST among /jira/bugs/* routes ──
+
 @router.get(
     "/jira/bugs/{issue_key}",
     tags=["Jira Integration"],
@@ -1359,9 +1482,4 @@ def get_jira_statuses():
         raise HTTPException(
             status_code=502,
             detail=f"Failed to fetch statuses from Jira: {str(e)}",
-        )
-
-
-def status_code_503():
-    """Helper to return 503 status code."""
-    return 503
+        )

@@ -286,16 +286,17 @@ def ensure_user_exists(user_id: str, user_name: str):
             })
             
         csv_path = os.path.join("services", "user_access", "data", "users.csv")
-        with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                user_id,
-                user_name,
-                f"{user_name.lower().replace(' ', '.')}@pharma.com",
-                "Engineering",
-                "Software Engineer",
-                "active"
-            ])
+        if not os.environ.get("VERCEL"):
+            with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    user_id,
+                    user_name,
+                    f"{user_name.lower().replace(' ', '.')}@pharma.com",
+                    "Engineering",
+                    "Software Engineer",
+                    "active"
+                ])
             
     return user_id
 
